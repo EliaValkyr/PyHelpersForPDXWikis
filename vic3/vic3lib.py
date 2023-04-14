@@ -156,6 +156,36 @@ class NamedModifier(AdvancedEntity):
                                                        '\n* '.join([modifier.format_for_wiki() for modifier in self.modifiers]))
 
 
+class Good(AdvancedEntity):
+    texture: str
+    category: str
+    cost: int
+    tradeable: bool
+    consumption_tax_cost: int
+
+    prestige_factor: float = 1
+    traded_quantity: float = 1
+    convoy_cost_multiplier: float = 1
+
+
+class PopType(AdvancedEntity):
+    texture: str
+    color: PdxColor
+    strata: str
+    unemployment: bool
+    unemployment_wealth: int
+
+    can_always_hire: bool
+    start_quality_of_life: int
+    wage_weight: float
+    dependent_wage: float
+
+    political_engagement_base: float
+    political_engagement_literacy_factor: float
+
+    display_name_without_icon: str
+
+
 class StateResource:
     def __init__(self, building_group: str, amount: int = 0, undiscovered_amount: int = 0, is_arable: bool = False,
                  is_capped: bool = False, is_discoverable: bool = False):
@@ -432,11 +462,6 @@ class Party(AdvancedEntity):
 
 class InterestGroup(AdvancedEntity):
     pass
-
-
-class PopType(AdvancedEntity):
-    display_name_without_icon: str
-
 
 class Achievement(AdvancedEntity):
     possible: Tree

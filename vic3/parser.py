@@ -338,6 +338,10 @@ class Vic3Parser:
         return None
 
     @cached_property
+    def goods(self) -> dict[str, Good]:
+        return self.parse_advanced_entities('common/goods', Good)
+
+    @cached_property
     def buildings(self) -> dict[str, Building]:
         all_buildings = self.parse_advanced_entities('common/buildings', Building,
                                                      transform_value_functions={
