@@ -191,6 +191,7 @@ def create_output_rows() -> list[tuple[list[str], dict[str, dict[any, any]], str
 					pm.name,
 					pm_dict[pm],  # The list of PMs has size 1: its display name.
 					construction_cost,
+					building.building_group.is_government_funded
 				]
 
 				# Get the minting from the building's country modifiers.
@@ -234,6 +235,7 @@ def print_headers(file) -> None:
 		'PM Name',
 		'PM Display Name',
 		'Construction Cost',
+		'Government Funded',
 		'#',
 	]
 
