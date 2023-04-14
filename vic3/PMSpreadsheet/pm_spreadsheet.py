@@ -3,6 +3,8 @@ import re
 import sys
 
 from vic3.PMSpreadsheet.goods_spreadsheet import get_goods_order
+from vic3.PMSpreadsheet.pop_types_spreadsheet import get_pop_types_order
+from vic3.PMSpreadsheet.utils import get_display_name
 from vic3.game import vic3game
 from vic3.vic3lib import Building, BuildingGroup, ProductionMethod, ProductionMethodGroup, PopType, Good, Modifier, Law
 
@@ -27,14 +29,6 @@ def get_header_keys() -> list[str]:
 
 def get_header_key_labels() -> list[str]:
 	return ['Input goods', 'Output goods', 'Employment', 'Shares']
-
-
-# Returns the display name of an item (building, PM, good, etc.) after resolving all the nested localizations.
-def get_display_name(elem) -> str:
-	# recursively resolve $nested$ localizations
-	text = vic3game.parser.formatter.resolve_nested_localizations(elem.display_name)
-	# delete @icon! references
-	return ' '.join(re.sub(r'@([^!]*)!', '', text).split())
 
 
 # Parses the modifier name, and decomposes it in three parts.
@@ -79,11 +73,6 @@ def parse_modifier_name(pm: ProductionMethod, scaled_by: str, modifier_name: str
 		return 'subsistence_output', 'subsistence_output', 'subsistence_output'
 
 	assert False, f'UNKNOWN MODIFIER'
-
-
-# determine row order
-
-
 
 
 # Returns a list with all the parent building groups of a building (building groups form a tree-like structure).
@@ -208,11 +197,7 @@ def create_output_rows() -> list[tuple[list[str], dict[str, dict[any, any]], str
 # Determines the ordering of the columns that represent PM's modifiers.
 def get_modifier_columns_order() -> list[list[any]]:
 	goods_order = get_goods_order()
-
-	# Sort pop types by strata, then by file order.
-	pop_type_strata_order: list[str] = ['poor', 'middle', 'rich']
-	assert set(pop_type.strata for pop_type in poptypes.values()) == set(pop_type_strata_order)
-	pop_type_order: list[PopType] = [pop_type for strata in pop_type_strata_order for pop_type in poptypes.values() if pop_type.strata == strata]
+	pop_type_order = get_pop_types_order()
 	pop_shares_order: list[str] = pop_type_order + ['government'] # Add a column for government shares.
 
 	return [goods_order, goods_order, pop_type_order, pop_shares_order]
