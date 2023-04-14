@@ -326,7 +326,9 @@ class Vic3Parser:
                                                  lawgroup_data['law_group_category'])
 
         return self.parse_advanced_entities('common/laws', Law, transform_value_functions={
-            'group': lambda group_name: law_groups[group_name]})
+            'group': lambda group_name: law_groups[group_name],
+            'build_from_investment_pool': lambda bg_list: [self.building_groups[bg] for bg in bg_list],
+        })
 
     def _get_monument_location(self, name, data):
         try:

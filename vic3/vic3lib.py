@@ -290,16 +290,6 @@ class LawGroup(NameableEntity):
         return self.law_category_wiki_pages[self.law_group_category]
 
 
-class Law(AdvancedEntity):
-    group: LawGroup = None
-
-    def get_wiki_link(self) -> str:
-        return f'[[{self.group.get_wiki_page()}#{self.display_name}|{self.display_name}]]'
-
-    def get_wiki_icon(self) -> str:
-        return self.get_wiki_file_tag()
-
-
 class Technology(AdvancedEntity):
     wiki_pages = {'production': 'Production technology', 'military': 'Military technology', 'society': 'Society technology'}
 
@@ -392,6 +382,17 @@ class Building(AdvancedEntity):
             group_names.append(bg.name)
             bg = bg.parent_group
         return group_names
+
+
+class Law(AdvancedEntity):
+    group: LawGroup = None
+    build_from_investment_pool: list[BuildingGroup] = []
+
+    def get_wiki_link(self) -> str:
+        return f'[[{self.group.get_wiki_page()}#{self.display_name}|{self.display_name}]]'
+
+    def get_wiki_icon(self) -> str:
+        return self.get_wiki_file_tag()
 
 
 class ProductionMethodGroup(AdvancedEntity):

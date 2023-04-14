@@ -4,10 +4,21 @@ import sys
 
 from vic3.PMSpreadsheet.goods_spreadsheet import get_goods_order
 from vic3.game import vic3game
-from vic3.vic3lib import Building, BuildingGroup, ProductionMethod, ProductionMethodGroup, PopType, Good, Modifier
+from vic3.vic3lib import Building, BuildingGroup, ProductionMethod, ProductionMethodGroup, PopType, Good, Modifier, Law
 
 goods: dict[str, Good] = vic3game.parser.goods
 poptypes: dict[str, PopType] = vic3game.parser.pop_types
+
+laws: dict[str, Law] = vic3game.parser.laws
+economic_laws = [law for _, law in laws.items() if law.group == 'lawgroup_economic_system']
+
+
+def get_law_keys() -> list[str]:
+	return [law.name for law in economic_laws]
+
+
+def get_law_key_labels() -> list[str]:
+	return [law.display_name for law in economic_laws]
 
 
 def get_header_keys() -> list[str]:
@@ -72,22 +83,31 @@ def parse_modifier_name(pm: ProductionMethod, scaled_by: str, modifier_name: str
 
 # determine row order
 
-building_category_order = ['urban', 'rural', 'development']
-assert set(building_category_order) == set(bg.category for bg in vic3game.parser.building_groups.values() if bg.category)
-
-bg_index = {k: i for i, k in enumerate(vic3game.parser.building_groups)}
 
 
-def get_top_level_bg(building: Building) -> BuildingGroup:
+
+# Returns a list with all the parent building groups of a building (building groups form a tree-like structure).
+def get_bg_parents(building: Building) -> list[BuildingGroup]:
+	bg_list = []
 	bg: BuildingGroup = building.building_group
+	bg_list.append(bg)
 	while bg.parent_group:
 		assert bg.category == bg.parent_group.category
 		bg = bg.parent_group
-	return bg
+		bg_list.append(bg)
+	return bg_list
 
 
+# Returns the top-level building group of a building: the group that does not have a parent group.
+def get_top_level_bg(building: Building) -> BuildingGroup:
+	return get_bg_parents(building)[-1]
+
+
+# Determines a key for sorting the buildings.
 def get_building_key(building: Building) -> int:
+	building_category_order = ['urban', 'rural', 'development']
 	bg: BuildingGroup = get_top_level_bg(building)
+	assert set(building_category_order) == set(bg.category for bg in vic3game.parser.building_groups.values() if bg.category)
 	return building_category_order.index(bg.category)
 
 
@@ -104,8 +124,14 @@ def sanity_checks_building(building: Building):
 	assert pm_name_list == pm_name_list_2
 
 
-# collect rows (one per PM)
-def create_output_rows() -> list[tuple[list[str], dict[str, dict[any, any]], str]]:
+# Returns the list of economic laws under which the Investment Pool can be used to build the given building.
+def get_investment_pool_laws(building: Building) -> list[Law]:
+	bg_list = get_bg_parents(building)
+	return [law for law in economic_laws for bg in law.build_from_investment_pool if bg in bg_list]
+
+
+# Creates the rows of the body: one row per PM.
+def create_output_rows() -> list[tuple[list[str], dict[str, dict[any, any]], str, list[Law]]]:
 	rows = []
 	for building in sorted(vic3game.parser.buildings.values(), key=get_building_key):
 		top_level_bg = get_top_level_bg(building)
@@ -116,6 +142,7 @@ def create_output_rows() -> list[tuple[list[str], dict[str, dict[any, any]], str
 			continue
 
 		construction_cost: int = 0 if building.required_construction is None else building.required_construction
+		investment_pool_laws = [] if construction_cost == 0 else get_investment_pool_laws(building)
 
 		for pm_group_key in building.production_method_groups:
 			pm_group: ProductionMethodGroup = vic3game.parser.production_method_groups[pm_group_key]
@@ -172,8 +199,8 @@ def create_output_rows() -> list[tuple[list[str], dict[str, dict[any, any]], str
 				minting: tuple[str, Modifier] = country_modifiers.get('country_minting_add')
 				minting_value: str = minting[1].value if minting else ''
 
-				# Add new row for the PM, with the headers, the PM's modifiers (i.e. input/output goods, employment, shares), and the minting.
-				rows.append((headers, dict(parsed_modifiers), minting_value))
+				# Add new row for the PM, with the headers, the PM's modifiers (i.e. input/output goods, employment, shares), the minting and the IP laws.
+				rows.append((headers, dict(parsed_modifiers), minting_value, investment_pool_laws))
 	return rows
 
 
@@ -217,6 +244,7 @@ def print_headers(file) -> None:
 		*main_headers,
 		*(header for key_label, subheader_list in zip(get_header_key_labels(), column_order) for header in [key_label, *('' for _ in range(len(subheader_list)-1))]),
 		'Minting',
+		'Investment Pool laws', *('' for _ in range(len(economic_laws) - 1)),
 		sep='\t',
 		file=file)
 
@@ -225,6 +253,7 @@ def print_headers(file) -> None:
 		*('' for _ in main_headers),
 		*(get_subheader_label(subheader) for subheader_list in column_order for subheader in subheader_list),
 		'',  # Minting
+		*(law.display_name for law in economic_laws),
 		sep='\t',
 		file=file)
 
@@ -232,12 +261,13 @@ def print_headers(file) -> None:
 def print_body(file) -> None:
 	rows = create_output_rows()
 	column_order: list[list[any]] = get_modifier_columns_order()
-	for i, (header, modifiers, minting) in enumerate(rows):
+	for i, (header, modifiers, minting, investment_pool_laws) in enumerate(rows):
 		print(
 			*header,
 			i+1,
 			*(modifiers.get(key, {}).get(subheader, '') for key, subheader_list in zip(get_header_keys(), column_order) for subheader in subheader_list),
 			minting,
+			*map(lambda law: law in investment_pool_laws, economic_laws),
 			sep='\t',
 			file=file)
 
