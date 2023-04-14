@@ -240,8 +240,9 @@ def print_body(file) -> None:
 			file=file)
 
 
-def print_production_method_data(filename: str) -> None:
-	file = open(filename, 'w')
+def print_production_method_data(dir_name: str) -> None:
+	file_name = dir_name / "production_methods.txt"
+	file = open(file_name, 'w')
 	print_headers(file)
 	print_body(file)
 
