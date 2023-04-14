@@ -2,6 +2,7 @@ from collections import defaultdict
 import re
 import sys
 
+from vic3.PMSpreadsheet.goods_spreadsheet import get_goods_order
 from vic3.game import vic3game
 from vic3.vic3lib import Building, BuildingGroup, ProductionMethod, ProductionMethodGroup, PopType, Good, Modifier
 
@@ -175,10 +176,7 @@ def create_output_rows() -> list[tuple[list[str], dict[str, dict[any, any]], str
 
 # Determines the ordering of the columns that represent PM's modifiers.
 def get_modifier_columns_order() -> list[list[any]]:
-	# Sort goods by category, then by file order.
-	goods_category_order: list[str] = ['staple', 'industrial', 'luxury', 'military']
-	assert set(good.category for good in goods.values()) == set(goods_category_order)
-	goods_order: list[Good] = [good for category in goods_category_order for good in goods.values() if good.category == category]
+	goods_order = get_goods_order()
 
 	# Sort pop types by strata, then by file order.
 	pop_type_strata_order: list[str] = ['poor', 'middle', 'rich']
