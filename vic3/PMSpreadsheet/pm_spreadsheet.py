@@ -115,6 +115,8 @@ def create_output_rows() -> list[tuple[list[str], dict[str, dict[any, any]], str
 		if not should_add_building(building):
 			continue
 
+		construction_cost: int = 0 if building.required_construction is None else building.required_construction
+
 		for pm_group_key in building.production_method_groups:
 			pm_group: ProductionMethodGroup = vic3game.parser.production_method_groups[pm_group_key]
 
@@ -161,6 +163,7 @@ def create_output_rows() -> list[tuple[list[str], dict[str, dict[any, any]], str
 					get_display_name(pm_group),
 					pm.name,
 					pm_dict[pm],  # The list of PMs has size 1: its display name.
+					construction_cost,
 				]
 
 				# Get the minting from the building's country modifiers.
@@ -203,6 +206,7 @@ def print_headers(file) -> None:
 		'PMG Display Name',
 		'PM Name',
 		'PM Display Name',
+		'Construction Cost',
 		'#',
 	]
 
