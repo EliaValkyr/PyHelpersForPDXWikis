@@ -6,7 +6,7 @@ from vic3.PMSpreadsheet.goods_spreadsheet import get_goods_order
 from vic3.PMSpreadsheet.pop_types_spreadsheet import get_pop_types_order
 from vic3.PMSpreadsheet.utils import get_display_name
 from vic3.game import vic3game
-from vic3.vic3lib import Building, BuildingGroup, ProductionMethod, ProductionMethodGroup, PopType, Good, Modifier, Law
+from vic3.vic3lib import Building, BuildingGroup, ProductionMethod, ProductionMethodGroup, PopType, Good, Modifier, Law, Technology
 
 goods: dict[str, Good] = vic3game.parser.goods
 poptypes: dict[str, PopType] = vic3game.parser.pop_types
@@ -74,7 +74,6 @@ def parse_modifier_name(pm: ProductionMethod, scaled_by: str, modifier_name: str
 
 	assert False, f'UNKNOWN MODIFIER'
 
-
 # Returns a list with all the parent building groups of a building (building groups form a tree-like structure).
 def get_bg_parents(building: Building) -> list[BuildingGroup]:
 	bg_list = []
@@ -113,6 +112,21 @@ def sanity_checks_building(building: Building):
 	assert pm_name_list == pm_name_list_2
 
 
+# Returns the minimum era when a building can be built.
+def get_building_era(building: Building) -> int:
+	return min((tech.era for tech in building.required_technologies), default=0)
+
+
+# Returns the minimum era when a PM can be built.
+def get_pm_era(pm: ProductionMethod) -> int:
+	def get_era(elem: ProductionMethod | Law) -> int:
+		return max(
+			min((tech.era for tech in elem.required_technologies), default=0),
+			min((get_era(law) for law in elem.unlocking_laws), default=0)
+		)
+	return get_era(pm)
+
+
 # Returns the list of economic laws under which the Investment Pool can be used to build the given building.
 def get_investment_pool_laws(building: Building) -> list[Law]:
 	bg_list = get_bg_parents(building)
@@ -132,6 +146,7 @@ def create_output_rows() -> list[tuple[list[str], dict[str, dict[any, any]], str
 
 		construction_cost: int = 0 if building.required_construction is None else building.required_construction
 		investment_pool_laws = [] if construction_cost == 0 else get_investment_pool_laws(building)
+		building_era = get_building_era(building)
 
 		for pm_group_key in building.production_method_groups:
 			pm_group: ProductionMethodGroup = vic3game.parser.production_method_groups[pm_group_key]
@@ -169,6 +184,9 @@ def create_output_rows() -> list[tuple[list[str], dict[str, dict[any, any]], str
 					for pop_type in poptypes.values():
 						parsed_modifiers['shares'][pop_type] = parsed_modifiers['shares'].get(pop_type, 0) + workforce_shares
 
+				pm_era = get_pm_era(pm)
+				era = max(building_era, pm_era)
+
 				# Prepare the header of the row, with the names of the building, PM group and PM, etc.
 				headers = [
 					top_level_bg.category,
@@ -180,7 +198,8 @@ def create_output_rows() -> list[tuple[list[str], dict[str, dict[any, any]], str
 					pm.name,
 					pm_dict[pm],  # The list of PMs has size 1: its display name.
 					construction_cost,
-					building.building_group.is_government_funded
+					building.building_group.is_government_funded,
+					era
 				]
 
 				# Get the minting from the building's country modifiers.
@@ -221,6 +240,7 @@ def print_headers(file) -> None:
 		'PM Display Name',
 		'Construction Cost',
 		'Government Funded',
+		'Era',
 		'#',
 	]
 
