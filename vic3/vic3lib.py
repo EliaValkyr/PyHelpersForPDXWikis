@@ -387,6 +387,7 @@ class Building(AdvancedEntity):
 class Law(AdvancedEntity):
     group: LawGroup = None
     build_from_investment_pool: list[BuildingGroup] = []
+    unlocking_laws: list['Law'] = []
 
     def get_wiki_link(self) -> str:
         return f'[[{self.group.get_wiki_page()}#{self.display_name}|{self.display_name}]]'

@@ -325,10 +325,27 @@ class Vic3Parser:
             law_groups[lawgroup_name] = LawGroup(lawgroup_name, self.localize(lawgroup_name),
                                                  lawgroup_data['law_group_category'])
 
-        return self.parse_advanced_entities('common/laws', Law, transform_value_functions={
-            'group': lambda group_name: law_groups[group_name],
-            'build_from_investment_pool': lambda bg_list: [self.building_groups[bg] for bg in bg_list],
-        })
+        laws = {}
+        prerequisites = {}
+        for name, data in self.parser.parse_folder_as_one_file('common/laws'):
+            if 'unlocking_laws' in data:
+                # has to be processed later, because the prerequisites can come later in the file
+                prerequisites[name] = data['unlocking_laws']
+
+            laws[name] = Law(name, self.localize(name),
+                             description=self.localize(name + '_desc'),
+                             icon=data['icon'],
+                             required_technologies=self.parse_technologies_section(name, data),
+                             modifiers=self.parse_modifier_section(name, data),
+                             group=law_groups[data['group']],
+                             build_from_investment_pool=[] if 'build_from_investment_pool' not in data else [self.building_groups[bg] for bg in data['build_from_investment_pool']],
+                             unlocking_laws=[],  # filled later
+                             )
+
+        for name, unlocking_laws in prerequisites.items():
+            laws[name].unlocking_laws = [laws[unlocking_law] for unlocking_law in unlocking_laws]
+
+        return laws
 
     def _get_monument_location(self, name, data):
         try:
