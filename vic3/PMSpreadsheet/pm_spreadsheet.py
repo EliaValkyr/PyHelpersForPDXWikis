@@ -28,7 +28,7 @@ def get_header_keys() -> list[str]:
 
 
 def get_header_key_labels() -> list[str]:
-	return ['Input goods', 'Output goods', 'Employment', 'Shares']
+	return ['in_', 'out_', 'emp_', 'shr_']
 
 
 # Parses the modifier name, and decomposes it in three parts.
@@ -229,9 +229,9 @@ def print_headers(file) -> None:
 	# First header row, with the main headers.
 	print(
 		*main_headers,
-		*(header for key_label, subheader_list in zip(get_header_key_labels(), column_order) for header in [key_label, *('' for _ in range(len(subheader_list)-1))]),
+		*(prefix + get_subheader_label(subheader).lower() for key_label, subheader_list in zip(get_header_key_labels(), column_order) for prefix, subheader in zip([key_label] * len(subheader_list), subheader_list)),
 		'Minting',
-		'Investment Pool laws', *('' for _ in range(len(economic_laws) - 1)),
+		*(law.name for law in economic_laws),
 		sep='\t',
 		file=file)
 
