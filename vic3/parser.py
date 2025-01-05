@@ -1,15 +1,17 @@
 import inspect
+import sys
 from typing import Callable, TypeVar, Type
 
 from PyHelpersForPDXWikis.localsettings import VIC3DIR
-from common.paradox_parser import ParadoxParser
+from common.jomini_parser import JominiParser
+from common.paradox_parser import ParadoxParser, ParsingWorkaround, QuestionmarkEqualsWorkaround
 from vic3.vic3lib import *
 from common.paradox_lib import NameableEntity
 AE = TypeVar('AE', bound=AdvancedEntity)
 NE = TypeVar('NE', bound=NameableEntity)
 
 
-class Vic3Parser:
+class Vic3Parser(JominiParser):
     """Parses Victoria 3 game data into objects of the vic3lib module.
 
     This object should not be constructed directly, instead it should be accessed as vic3game.parser so that there
@@ -21,40 +23,21 @@ class Vic3Parser:
     parse_advanced_entities() and parse_advanced_entities() can be used to easily add parsing for new entities.
     """
 
-    # allows the overriding of localisation strings
-    localizationOverrides = {'recognized': 'Recognized'}  # there doesn't seem to be a localization for this
+    # allows the overriding of localization strings
+    localizationOverrides = {'recognized': 'Recognized', # there doesn't seem to be a localization for this
+                             'GNI': 'Guarani (GNI)',  # there are two tags called Guarani: GNI and GRI
+                             }
 
     def __init__(self):
-        self.parser = ParadoxParser(VIC3DIR / 'game')
-
-    @cached_property
-    def _localisation_dict(self):
-        localisation_dict = {}
-        for path in (VIC3DIR / 'game' / 'localization' / 'english').glob('**/*_l_english.yml'):
-            with path.open(encoding='utf-8-sig') as f:
-                for line in f:
-                    match = re.fullmatch(r'\s*([^#\s:]+):\d?\s*"(.*)"[^"]*', line)
-                    if match:
-                        localisation_dict[match.group(1)] = match.group(2)
-        return localisation_dict
-
-    def localize(self, key: str, default: str = None) -> str:
-        """localize the key from the english vic3 localisation files
-
-        if the key is not found, the default is returned
-        unless it is None in which case the key is returned
-        """
-        if default is None:
-            default = key
-
-        if key in self.localizationOverrides:
-            return self.localizationOverrides[key]
-        else:
-            return self._localisation_dict.get(key, default)
+        super().__init__(VIC3DIR / 'game')
+        self.localization_folder_iterator = (VIC3DIR / 'game' / 'localization' / 'english').glob('**/*_l_english.yml')
 
     def parse_nameable_entities(self, folder: str, entity_class: Type[NE],
                                 extra_data_functions: dict[str, Callable[[str, Tree], any]] = None,
-                                transform_value_functions: dict[str, Callable[[any], any]] = None) -> dict[str, NE]:
+                                transform_value_functions: dict[str, Callable[[any], any]] = None,
+                                entity_level: int = 0,
+                                level_headings_keys: dict[str, 0] = None,
+                                parsing_workarounds: list[ParsingWorkaround] = None) -> dict[str, NE]:
         """parse a folder into objects which are subclasses of NameableEntity
 
         Args:
@@ -64,33 +47,146 @@ class Vic3Parser:
                           will turn these arguments into properties of the object
             extra_data_functions: create extra entries in the data. For each key in this dict, the corresponding function
                                   will be called with the name of the entity and the data dict as parameter. The return
-                                  value will be added to the data dict under the same key
+                                  value will be added to the data dict under the same key. 'name' and 'display_name'
+                                   can also be used as keys to change the name dnd display name of the entity
             transform_value_functions: the functions in this dict are called with the value of the data which matches
                                        the key of this dict. If the key is not present in the data, the function won't
                                        be called. The function must return the new value for the data
+            entity_level: the level where the entities can be found. The default is 0 which means that the entities
+                          are on the toplevel.
+            level_headings_keys: if entity_level is bigger than 0, this map is used to add the headings of each level
+                                 as additional keys into the data dictionary. Each entry in level_headings_keys has the
+                                 key which will be used as the key in the data dictionary and the value which is the
+                                 level of the heading which should be used. 'name' can also be a key to specify where
+                                 the name comes from
 
         Returns:
-            a dict between the top level keys in the folder and the entity_class objects which were created from them
+            a dict between the name of the entity(if not specified, the top level keys in the folder is used as the
+            name) and the entity_class objects which were created from them
         """
         if extra_data_functions is None:
             extra_data_functions = {}
         if transform_value_functions is None:
             transform_value_functions = {}
+        if level_headings_keys is None:
+            level_headings_keys = {}
         if 'display_name' not in extra_data_functions:
             extra_data_functions['display_name'] = lambda entity_name, entity_data: self.localize(entity_name)
-        entities = {}
         class_attributes = inspect.get_annotations(entity_class)
-        for name, data in self.parser.parse_folder_as_one_file(folder):
-            entity_values = {}
-            for key, func in extra_data_functions.items():
-                entity_values[key] = func(name, data)
-            for k, v in data:
-                if k in transform_value_functions:
-                    entity_values[k] = transform_value_functions[k](v)
-                elif k in class_attributes and k not in entity_values:
-                    entity_values[k] = v
-            entities[name] = entity_class(name, **entity_values)
+        if entity_level == 0:
+            overwrite_duplicate_toplevel_keys = True
+        else:
+            overwrite_duplicate_toplevel_keys = False
+        entities = self._get_entities_from_level(class_attributes, entity_class, extra_data_functions,
+                                                 previous_headings=[],
+                                                 transform_value_functions=transform_value_functions,
+                                                 tree=self.parser.parse_folder_as_one_file(folder,
+                                                                                           overwrite_duplicate_toplevel_keys=overwrite_duplicate_toplevel_keys,
+                                                                                           workarounds=parsing_workarounds),
+                                                 entity_level=entity_level, current_level=0,
+                                                 level_headings_keys=level_headings_keys)
+
         return entities
+
+    def _get_entities_from_level(self, class_attributes, entity_class, extra_data_functions, previous_headings,
+                                 transform_value_functions, tree, entity_level, current_level, level_headings_keys,
+                                 conditions=None):
+        entities = {}
+        for heading, data in tree:
+            if heading == 'if':
+                entities.update(self._get_entities_from_level(class_attributes, entity_class, extra_data_functions,
+                                                              headings, transform_value_functions,
+                                                              data.filter_elements(lambda k, v: k != 'limit'),
+                                                              entity_level, current_level, level_headings_keys,
+                                                              conditions=data['limit']))
+            elif heading == 'else':
+                entities.update(self._get_entities_from_level(class_attributes, entity_class, extra_data_functions,
+                                                              headings, transform_value_functions,
+                                                              data,
+                                                              entity_level, current_level, level_headings_keys,
+                                                              conditions))
+            else:
+                headings = previous_headings.copy()
+                headings.append(heading)
+                if current_level < entity_level:
+                    entities.update(self._get_entities_from_level(class_attributes, entity_class, extra_data_functions,
+                                                                  headings, transform_value_functions, data, entity_level,
+                                                                  current_level + 1, level_headings_keys, conditions))
+                else:
+                    if isinstance(data, Tree):
+                        name, entity = self._parse_entity(class_attributes, data, entity_class,
+                                                          extra_data_functions, headings, level_headings_keys,
+                                                          transform_value_functions, conditions)
+                        entities[name] = entity
+                    else:  # assume list
+                        for entry in data:
+                            if len(entry) > 0:
+                                name, entity = self._parse_entity(class_attributes, entry, entity_class,
+                                                                  extra_data_functions, headings, level_headings_keys,
+                                                                  transform_value_functions, conditions)
+                                entities[name] = entity
+                            else:
+                                print(f'Warning: ignoring empty element in "{"|".join(headings)}"', file=sys.stderr)
+        return entities
+
+    def _parse_entity(self, class_attributes, data, entity_class, extra_data_functions, headings,
+                      level_headings_keys, transform_value_functions, conditions=None):
+        entity_values = {}
+        if 'name' in extra_data_functions:
+            name = extra_data_functions['name']('', data)
+        elif 'name' in level_headings_keys:
+            name = headings[level_headings_keys['name']]
+        else:
+            name = headings[-1]
+        for key, level in level_headings_keys.items():
+            if key != 'name':
+                entity_values[key] = headings[level_headings_keys[key]]
+                if key in transform_value_functions:
+                    entity_values[key] = transform_value_functions[key](entity_values[key])
+        for key, func in extra_data_functions.items():
+            if key != 'name':
+                entity_values[key] = func(name, data)
+        for k, v in data:
+            if k in transform_value_functions:
+                entity_values[k] = transform_value_functions[k](v)
+            elif k in class_attributes and k not in entity_values:
+                entity_values[k] = v
+        if conditions is not None:
+            if 'conditions' in class_attributes:
+                entity_values['conditions'] = conditions
+            elif 'dlc' in class_attributes:
+                entity_values['dlc'] = self.parse_dlc_from_conditions(conditions)
+        return name, entity_class(name, **entity_values)
+
+    def parse_dlc_from_conditions(self, conditions: Tree):
+        feature_dlc_map = {
+            'agitators': 'Voice of the People',
+            'exiles': 'Voice of the People',
+            'voice_of_the_people_content': 'Voice of the People',
+            'voice_of_the_people_preorder': 'Voice of the People preorder',
+            'rp1_content': 'Colossus of the South',
+            'ep1_content': 'Sphere of Influence',
+            'ep1_cosmetics': 'Sphere of Influence',
+            'foreign_investment': 'Sphere of Influence',
+            'power_bloc_features': 'Sphere of Influence',
+        }
+        dlcs = []
+        for key, value in conditions:
+            if key == 'has_dlc_feature':
+                dlcs.append(feature_dlc_map[value])
+            elif key == 'has_v2_soundtrack_dlc_trigger' and value == 'yes':
+                dlcs.append('Victoria 2 Remastered Soundtrack')
+            elif key == 'has_american_buildings_dlc_trigger' and value == 'yes':
+                dlcs.append('American Buildings Pack')
+            elif key == 'has_mp1_soundtrack_dlc_trigger' and value == 'yes':
+                dlcs.append('Melodies for the Masse')
+            elif key == 'has_agitators_cosmetics_dlc_trigger' and value == 'yes':
+                dlcs.append('Voice of the People')
+            else:
+                raise Exception(f'unknown condition {key}: {value}')
+        if len(dlcs) > 1:
+            raise Exception(f'more than one DLC is not supported: {dlcs}')
+        return dlcs[0]
 
     def parse_advanced_entities(self, folder: str, entity_class: Type[AE],
                                 extra_data_functions: dict[str, Callable[[str, Tree], any]] = None,
@@ -132,11 +228,13 @@ class Vic3Parser:
         return self.parser.parse_folder_as_one_file('common/script_values').merge_duplicate_keys()
 
     @cached_property
-    def countries(self):
+    def countries(self) -> dict[str, Country]:
         """returns a dictionary. keys are tags and values are Country objects."""
         countries = {}
         for file, data in self.parser.parse_files('common/country_definitions/*.txt'):
             for tag, country_data in data:
+                if 'dynamic_country_definition' in country_data and country_data['dynamic_country_definition']:  # ignore dynamic countries
+                    continue
                 if 'capital' in country_data:
                     capital_state = self.states[country_data['capital']]
                 else:
@@ -198,9 +296,14 @@ class Vic3Parser:
         dynamic_names = {}
         for tag, dynamic_names_sections in self.parser.parse_folder_as_one_file('common/dynamic_country_names'):
             dynamic_names[tag] = []
-            for section in dynamic_names_sections.find_all('dynamic_country_name'):
-                if 'is_revolutionary' not in section or not section['is_revolutionary']:
-                    dynamic_names[tag].append(self.localize(section['name']))
+            # sometimes dynamic_names_sections is a list, because there are multiple sections for the same tag. To make
+            # parsing easier, we always use a list
+            if not isinstance(dynamic_names_sections, list):
+                dynamic_names_sections = [dynamic_names_sections]
+            for tag_section in dynamic_names_sections:
+                for section in tag_section.find_all('dynamic_country_name'):
+                    if 'is_revolutionary' not in section or not section['is_revolutionary']:
+                        dynamic_names[tag].append(self.localize(section['name']))
         return dynamic_names
 
     def _get_state_resources(self, name, state_data: Tree) -> dict[str, StateResource]:
@@ -217,6 +320,16 @@ class Vic3Parser:
                                                         undiscovered_amount=resource.get_or_default(
                                                             'undiscovered_amount', 0))
         return resources
+
+    def _get_state_trait_list(self, trait_list) -> list[StateTrait]:
+        """trait_list can be a list of the trait keys or a list of lists with trait keys"""
+        result = []
+        for trait_or_list in trait_list:
+            if not isinstance(trait_or_list, list):
+                trait_or_list = [trait_or_list]
+            for trait_str in trait_or_list:
+                result.append(self.state_traits[trait_str])
+        return result
 
     @cached_property
     def states(self) -> dict[str, State]:
@@ -235,7 +348,7 @@ class Vic3Parser:
             'owners': lambda name, data: owners[name] if name in owners else [],
             'homelands': lambda name, data: homelands[name] if name in homelands else [],
         }, transform_value_functions={
-            'traits': lambda trait_list: [self.state_traits[trait] for trait in trait_list]
+            'traits': self._get_state_trait_list
         })
 
     @cached_property
@@ -270,9 +383,9 @@ class Vic3Parser:
 
     @cached_property
     def modifier_types(self) -> dict[str, ModifierType]:
-        return self.parse_nameable_entities('common/modifier_types', ModifierType)
+        return self.parse_nameable_entities('common/modifier_type_definitions', ModifierType)
 
-    def get_modifier_type_or_default(self, modifier_name) -> ModifierType:
+    def get_modifier_type_or_default(self, modifier_name: str) -> ModifierType:
         if modifier_name in self.modifier_types:
             return self.modifier_types[modifier_name]
         else:
@@ -280,6 +393,9 @@ class Vic3Parser:
             modifier_type = ModifierType(modifier_name, self.localize(modifier_name))
             if 'mortality' in modifier_name:
                 modifier_type.good = False
+                modifier_type.percent = True
+            if modifier_name.endswith('throughput_add'):
+                modifier_type.good = True
                 modifier_type.percent = True
             self.modifier_types[modifier_name] = modifier_type
             return modifier_type
@@ -302,8 +418,7 @@ class Vic3Parser:
         return [self.technologies[tech_name] for tech_name in section]
 
     def _parse_modifier_data(self, data: Tree):
-        return [Modifier(mod_name, self.localize('modifier_' + mod_name),
-                         modifier_type=self.get_modifier_type_or_default(mod_name), value=mod_value)
+        return [Modifier(mod_name, modifier_type=self.get_modifier_type_or_default(mod_name), value=mod_value)
                 for mod_name, mod_value in data]
 
     def parse_modifier_section(self, name, data) -> list[Modifier]:
@@ -348,9 +463,21 @@ class Vic3Parser:
         return laws
 
     def _get_monument_location(self, name, data):
+        if 'potential' not in data:
+            return None
         try:
-            state_name = data['possible']['error_check']['this']['state_region'].replace('s:', '')
-            if state_name in self.states:
+            conditions = data['potential']['error_check']['this']
+        except (KeyError, TypeError):  # new format?
+            conditions = data['potential']
+        try:
+            state_name = None
+            if isinstance(conditions, list):
+                for condition in conditions:
+                    if 'state_region' in condition:
+                        state_name = condition['state_region'].replace('s:', '')
+            else:
+                state_name = conditions['state_region'].replace('s:', '')
+            if state_name is not None and state_name in self.states:
                 return self.states[state_name]
         except KeyError:  # no state_region region check in the trigger, so it isn't a monument and we can ignore it
             return None
@@ -378,30 +505,43 @@ class Vic3Parser:
 
     @cached_property
     def building_groups(self) -> dict[str, BuildingGroup]:
-        BuildingGroup.hiring_rate = self.defines['NEconomy']['HIRING_RATE']
+        BuildingGroup.min_hiring_rate = self.defines['NEconomy']['DEFAULT_MIN_HIRING_RATE']
+        BuildingGroup.max_hiring_rate = self.defines['NEconomy']['DEFAULT_MAX_HIRING_RATE']
         BuildingGroup.proportionality_limit = self.defines['NEconomy']['EMPLOYMENT_PROPORTIONALITY_LIMIT']
         building_groups = {}
-        for name, data in self.parser.parse_folder_as_one_file('common/building_groups'):
-            entity_values = {}
-            for k, v in data:
-                if k in ['category', 'always_possible', 'economy_of_scale', 'is_subsistence',
-                         'auto_place_buildings', 'capped_by_resources',
-                         'discoverable_resource', 'depletable_resource', 'can_use_slaves', 'land_usage',
-                         'cash_reserves_max', 'stateregion_max_level',
-                         'urbanization', 'hiring_rate', 'proportionality_limit',
-                         'hires_unemployed_only', 'infrastructure_usage_per_level', 'fired_pops_become_radical',
-                         'pays_taxes', 'is_government_funded', 'created_by_trade_routes', 'subsidized', 'is_military',
-                         'default_building']:
-                    entity_values[k] = v
-                elif k == 'parent_group':
-                    entity_values['parent_group'] = building_groups[v]
-                elif k in ['lens', 'inheritable_construction', 'should_auto_expand', 'economy_of_scale_ai_factor']:
-                    pass
-                else:
-                    raise Exception('Unsupported key {} when parsing BuildingGroup "{}"'.format(k, name))
-            building_groups[name] = BuildingGroup(name, self.localize(name), **entity_values)
+        unparsed_bgs = [(name, data) for name, data in self.parser.parse_folder_as_one_file('common/building_groups')]
+        while len(unparsed_bgs) > 0:
+            name, data = unparsed_bgs.pop(0)
+            if 'parent_group' in data and data['parent_group'] not in building_groups:
+                # delay parsing till some time after the parent group
+                unparsed_bgs.append((name, data))
+            else:
+                building_groups[name] = self._parse_building_group(building_groups, data, name)
 
         return building_groups
+
+    def _parse_building_group(self, parsed_building_groups: dict[str, BuildingGroup], data, name: str) -> BuildingGroup:
+        entity_values = {}
+        for k, v in data:
+            if k in ['category', 'always_possible', 'economy_of_scale', 'is_subsistence',
+                     'auto_place_buildings', 'capped_by_resources',
+                     'discoverable_resource', 'depletable_resource', 'can_use_slaves', 'land_usage',
+                     'cash_reserves_max', 'stateregion_max_level',
+                     'urbanization', 'min_hiring_rate', 'max_hiring_rate', 'proportionality_limit',
+                     'hires_unemployed_only', 'infrastructure_usage_per_level', 'fired_pops_become_radical',
+                     'pays_taxes', 'is_government_funded', 'created_by_trade_routes', 'subsidized', 'is_military',
+                     'default_building', 'ignores_productivity_when_hiring',
+                     'min_productivity_to_hire', 'owns_other_buildings', 'always_self_owning']:
+                entity_values[k] = v
+            elif k == 'parent_group':
+                entity_values['parent_group'] = parsed_building_groups[v]
+            elif k in ['lens', 'inheritable_construction', 'should_auto_expand', 'economy_of_scale_ai_factor', 'foreign_investment_ai_factor',
+                       'is_shown_in_outliner']:
+                pass
+            else:
+                raise Exception('Unsupported key {} when parsing BuildingGroup "{}"'.format(k, name))
+        group = BuildingGroup(name, self.localize(name), **entity_values)
+        return group
 
     def _parse_pm_modifiers(self, modifier_section: Tree):
         result = {}
@@ -457,7 +597,7 @@ class Vic3Parser:
     @cached_property
     def technology_unlocks(self) -> dict[str, list[AE]]:
         unlocks = {tech_name: [] for tech_name in self.technologies.keys()}
-        entity_dict_with_possible_tech_requirements = [self.buildings, self.laws, self.production_methods, self.decrees, self.diplomatic_actions, self.parties, self.state_traits]
+        entity_dict_with_possible_tech_requirements = [self.buildings, self.laws, self.production_methods, self.decrees, self.diplomatic_actions, self.parties, self.state_traits, self.ideologies]
         for entity_dict in entity_dict_with_possible_tech_requirements:
             for entity in entity_dict.values():
                 for tech in entity.required_technologies:
@@ -508,4 +648,81 @@ class Vic3Parser:
         return self.parse_advanced_entities('common/achievements', Achievement, extra_data_functions={
             'display_name': lambda name, data: self.localize(f'ACHIEVEMENT_{name}'),
             'description': lambda name, data: self.localize(f'ACHIEVEMENT_DESC_{name}')
+        })
+
+    def _character_end(self, name, data):
+        end = '0'
+        for usage in ['agitator_usage', 'commander_usage', 'interest_group_leader_usage']:
+            if usage in data:
+                if 'latest_usage_date' in data[usage] and str(data[usage]['latest_usage_date']) > end:
+                    end = str(data[usage]['latest_usage_date'])
+        if end == '0':
+            end = None
+        return end
+
+    def _character_start(self, name, data):
+        start = '0'
+        for usage in ['agitator_usage', 'commander_usage', 'interest_group_leader_usage']:
+            if usage in data:
+                if 'earliest_usage_date' in data[usage] and (start == '0' or str(data[usage]['earliest_usage_date']) < start):
+                    start = str(data[usage]['earliest_usage_date'])
+        if start == '0':
+            start = None
+        return start
+
+
+    @cached_property
+    def characters(self) -> dict[str, Character]:
+        transform_value_functions = {
+            'first_name': self.localize,
+            'last_name': self.localize,
+            'country': lambda tag: self.countries[tag.removeprefix('c:')],
+            'interest_group': lambda ig: self.interest_groups.get(ig),
+            'ideology': self.localize,
+            'culture': lambda c: self.localize((c if not isinstance(c, list) else c[-1]).removeprefix('cu:')),
+            'religion': lambda c: self.localize(c.removeprefix('rel:')),
+            'traits': lambda traits: [self.localize(trait) for trait in traits],
+        }
+        template_chars = self.parse_nameable_entities(f'common/character_templates/', Character,
+                                                      transform_value_functions=transform_value_functions,
+                                                      extra_data_functions={'is_template': lambda name, data: True,
+                                                                            'start': self._character_start,
+                                                                            'end': self._character_end,
+                                                                            })
+
+        transform_value_functions['template'] = lambda template: template_chars[template]
+        chars = self.parse_nameable_entities(f'common/history/characters/', Character,
+                                             parsing_workarounds=[QuestionmarkEqualsWorkaround()],
+                                             entity_level=2, level_headings_keys={'country': 1},
+                                             transform_value_functions=transform_value_functions,
+                                             extra_data_functions={
+                        # 'display_name': lambda name, data:
+                        #     self.localize(data["first_name"]) + ' ' + self.localize(data["last_name"]) if 'first_name' in data else data['template'],
+                        'name': lambda name, data:
+                            data['first_name'] + '_' + data['last_name'] if 'first_name' in data else template_chars[data['template']].first_name + '_' + template_chars[data['template']].last_name,
+
+                    },
+                                             )
+
+        # remove used templates
+        templates_to_remove = [char.template.name for char in chars.values() if char.template]
+        # and special templates
+        templates_to_remove.append('default')
+        #return template_chars | chars
+        # filter out templated characters
+        return {name: char for name, char in (template_chars | chars).items() if name not in templates_to_remove}
+
+    def _parse_technologies_from_ideology_data(self, name, data):
+        technologies = []
+        if 'possible' in data:
+            for tree in data['possible'].find_all('owner'):
+                for techname in tree.find_all('has_technology_researched'):
+                    technologies.append(self.technologies[techname])
+        return technologies
+
+    @cached_property
+    def ideologies(self) -> dict[str, Ideology]:
+        return self.parse_advanced_entities('common/ideologies', Ideology, extra_data_functions={
+            'law_approvals': lambda name, data: {law: approval for k, v in data if k.startswith('lawgroup_') for law, approval in v},
+            'required_technologies': self._parse_technologies_from_ideology_data,
         })
