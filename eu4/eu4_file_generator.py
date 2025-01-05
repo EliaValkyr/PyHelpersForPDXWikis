@@ -1,5 +1,7 @@
 from functools import cached_property
 
+from eu4.paths import eu4outpath
+
 try:
     # when used by PyHelpersForPDXWikis
     from PyHelpersForPDXWikis.localsettings import EU4DIR
@@ -8,16 +10,17 @@ except: # when used by ck2utils
     EU4DIR = eu4dir
 from common.paradox_lib import Game
 from common.file_generator import FileGenerator
-from common.wiki import WikiTextFormatter
 from eu4.parser import Eu4Parser
 
 
 class EuropaUniversalisIV(Game):
     """Never construct this object manually. Use the variable eu4game instead.
     This way all data can be cached without having to pass on references to the game or the parser"""
+    name = 'Europa Universalis IV'
     short_game_name = 'eu4'
     game_path = EU4DIR
     launcher_settings = game_path / 'launcher-settings.json'
+    wiki_domain = 'eu4.paradoxwikis.com'
 
     @cached_property
     def parser(self) -> 'Eu4Parser':
@@ -38,7 +41,7 @@ class Eu4FileGenerator(FileGenerator):
 
     def __init__(self):
         super().__init__(eu4game)
+        self.outpath = eu4outpath
+        if not self.outpath.exists():
+            self.outpath.mkdir(parents=True)
 
-    @staticmethod
-    def create_wiki_list(elements: list[str], indent=1) -> str:
-        return WikiTextFormatter.create_wiki_list(elements, indent)

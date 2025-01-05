@@ -39,14 +39,15 @@ class BuildingTableGenerator(Vic3FileGenerator):
             'economy_of_scale': 'Has economy of scale',
             'is_subsistence': 'Is a subsistence building',
             'auto_place_buildings': 'Gets built automatically',
-            'capped_by_resources': 'Building level is limited by the available resources in the state',
+            'capped_by_resources': 'Building level is limited by state resources',
             'discoverable_resource': 'Resources can be discovered',
             'depletable_resource': 'Resources can deplete',
             'can_use_slaves': 'Can use slaves',
             'fired_pops_become_radical': 'Fired pops don\'t become radical',
             'pays_taxes': 'Pays no taxes',
-            'is_government_funded': 'Is government founded',
+            'is_government_funded': 'Is government-funded',
             'created_by_trade_routes': 'Gets created by trade routes',
+            'always_self_owning': 'Always workforce-owned',
         }
         for attribute, message in notes_for_building_groups.items():
             if hasattr(building.building_group, attribute) and getattr(building.building_group, attribute) != \
@@ -60,7 +61,7 @@ class BuildingTableGenerator(Vic3FileGenerator):
             bg = bg.parent_group
         return bg
 
-    def generate_building_table(self, category: str = None, group: str = None):
+    def generate_building_table(self, category: str = None, group: str = None, excluded_groups: list[str] = None):
         buildings_to_display = self.parser.buildings.values()
         if category is not None:
             buildings_to_display = [building for building in buildings_to_display if
@@ -68,6 +69,9 @@ class BuildingTableGenerator(Vic3FileGenerator):
         if group is not None:
             buildings_to_display = [building for building in buildings_to_display if
                                     building.building_group.name == group]
+        if excluded_groups is not None:
+            buildings_to_display = [building for building in buildings_to_display if
+                                    building.building_group.name not in excluded_groups]
         buildings = [{
             'Name': f'{{{{iconbox|{building.display_name}||image={building.get_wiki_filename()}}}}}\n',
             'Category': self.parser.localize(building.building_group.category.upper() + '_BUILDINGS'),
@@ -96,9 +100,9 @@ class BuildingTableGenerator(Vic3FileGenerator):
             new_header += '!! rowspan="2" width=100px | Group '
         else:
             column_specs = [column for column in column_specs if column[0] != 'Group']
-        new_header += '''!! rowspan="2" width=150px | Required technology !! colspan="3" style="text-align: center;" | Per Level !! rowspan="2" | Production methods !! rowspan="2" width=400px | Notes
+        new_header += '''!! rowspan="2" width=150px | Required technology !! colspan="3" style="text-align: center;" | Per Level !! rowspan="2" | Production methods !! rowspan="2" style="max-width:400px;" | Notes
 |-
-! {{icon|construction}} Cost !! Urbanization !! {{icon|infrastructure}} Cost'''
+! {{icon|construction}} Cost !! {{hover box|Urbanization|Urb.}} !! {{icon|infrastructure}} Cost'''
 
         table = self.make_wiki_table(buildings, column_specs=column_specs, table_classes=['mildtable', 'plainlist'],
                                      one_line_per_cell=True,
@@ -118,12 +122,12 @@ class BuildingTableGenerator(Vic3FileGenerator):
             if scaling_type in pm.building_modifiers:
                 for modifier in pm.building_modifiers[scaling_type]:
                     wiki_text = modifier.format_for_wiki()
-                    if wiki_text.endswith(' input per level'):
-                        wiki_text = re.sub(r'(?<=}}) [-a-zA-Z ]* input per level', '', wiki_text)
+                    if wiki_text.endswith(' input per level') or wiki_text.endswith(' input'):
+                        wiki_text = re.sub(r'(?<=}}) [-a-zA-Z ]* input( per level)?', '', wiki_text)
                         wiki_text += self.get_scaling_type_reference(scaling_type, 'workforce_scaled')
                         result['input'].append(wiki_text)
-                    elif wiki_text.endswith(' output per level'):
-                        wiki_text = re.sub(r'(?<=}}) [-a-zA-Z ]* output per level', '', wiki_text)
+                    elif wiki_text.endswith(' output per level') or wiki_text.endswith(' output'):
+                        wiki_text = re.sub(r'(?<=}}) [-a-zA-Z ]* output( per level)?', '', wiki_text)
                         wiki_text += self.get_scaling_type_reference(scaling_type, 'workforce_scaled')
                         result['output'].append(wiki_text)
                     elif profession_per_level.search(wiki_text):
