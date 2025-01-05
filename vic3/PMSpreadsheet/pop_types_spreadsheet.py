@@ -11,10 +11,37 @@ economic_laws = [law for _, law in laws.items() if law.group == 'lawgroup_econom
 
 
 def get_pop_types_order() -> list[PopType]:
-    # Sort pop types by strata, then by file order.
-    pop_type_strata_order: list[str] = ['poor', 'middle', 'rich']
-    assert set(pop_type.strata for pop_type in pop_types.values()) == set(pop_type_strata_order)
-    return [pop_type for strata in pop_type_strata_order for pop_type in pop_types.values() if pop_type.strata == strata]
+    # Sort pop types by strata, then by file order (based on the profession_to_strata map)
+    # Sort the professions based on their strata
+    strata_order = ['upper', 'middle', 'lower']  # This is the desired order of strata
+    profession_to_strata = {
+        'academics': 'middle',
+        'aristocrats': 'upper',
+        'bureaucrats': 'middle',
+        'capitalists': 'upper',
+        'clergymen': 'middle',
+        'clerks': 'lower',
+        'engineers': 'middle',
+        'farmers': 'middle',
+        'laborers': 'lower',
+        'machinists': 'lower',
+        'officers': 'middle',
+        'peasants': 'lower',
+        'shopkeepers': 'middle',
+        'slaves': 'lower',
+        'soldiers': 'lower'
+    }
+        # Set the strata for each pop_type based on the profession_to_strata map
+    for key, pop_type in pop_types.items():
+        # Set the strata from the map
+        pop_type.strata = profession_to_strata.get(key, 'lower')  # Default to 'lower' if not found
+
+    # We can create a sorted list of pop_types by strata
+    sorted_pop_types = sorted(pop_types.items(), key=lambda item: strata_order.index(profession_to_strata.get(item[0], 'lower')))
+    
+    # Return the sorted pop types (sorted by strata and then by key)
+    return [pop_type for key, pop_type in sorted_pop_types]
+
 
 
 def get_investment_pool_contributions() -> dict[str, float]:

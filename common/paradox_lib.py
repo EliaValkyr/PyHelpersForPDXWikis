@@ -9,12 +9,7 @@ from typing import Any, Callable, Dict, get_origin, get_args, get_type_hints
 from pathlib import Path
 
 from common.paradox_parser import Tree
-try:
-    # when used by PyHelpersForPDXWikis
-    from PyHelpersForPDXWikis.localsettings import CACHEPATH
-except:  # when used by ck2utils
-    from localpaths import cachedir
-    CACHEPATH = cachedir
+from PyHelpersForPDXWikis.localsettings import CACHEPATH
 
 
 class Game:
