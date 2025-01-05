@@ -42,7 +42,7 @@ def parse_modifier_name(pm: ProductionMethod, scaled_by: str, modifier_name: str
 
 	# Modifier: pop type shares.
 	if m := re.fullmatch(r'(.+)_shares_add', modifier_name):
-		assert scaled_by == 'unscaled', 'scale type not matching'
+		assert scaled_by == 'unscaled', 'scale type not matching, expected unscaled'
 		return 'poptype', 'shares', m.group(1) if m.group(1) in {'government', 'workforce'} else poptypes[m.group(1)]
 
 	# Modifier: pop type employment.
@@ -51,25 +51,22 @@ def parse_modifier_name(pm: ProductionMethod, scaled_by: str, modifier_name: str
 		is_vineyards = pm.name == 'pm_vineyards' or pm.name.startswith('pm_vineyards_building_')
 		is_anchorage = pm.name == 'pm_anchorage'
 		is_expected = 'workforce_scaled' if is_vineyards or is_anchorage else 'level_scaled'
-		assert scaled_by == is_expected, 'scale type not matching'
+		assert scaled_by == is_expected, 'scale type not matching, expected workforce_scaled'
 		return 'poptype', 'employment', poptypes[m.group(1)]
 
 	# Modifier: input/output goods.
 	if m := re.fullmatch(r'(input|output)_(.+)_add', modifier_name):
-		# For some reason, these PMs have unscaled goods modifiers, instead of workforce_scaled.
-		is_no_home_workshops = pm.name.startswith('pm_home_workshops_no_building_')
-		is_expected = 'unscaled' if is_no_home_workshops else 'workforce_scaled'
-		assert scaled_by == is_expected, 'scale type not matching'
+		assert scaled_by == 'workforce_scaled', 'scale type not matching, expected unscaled'
 		return 'goods', m.group(1), goods[m.group(2)]
 
 	# Ignored modifier: mortality multiplier.
 	if m := re.fullmatch(r'(.+)_mortality_mult', modifier_name):
-		assert scaled_by == 'unscaled', 'scale type not matching'
+		assert scaled_by == 'unscaled', 'scale type not matching, expected unscaled'
 		return 'poptype', 'mortality', poptypes[m.group(1)]
 
 	# Ignored modifier: subsistence output.
 	if m := re.fullmatch(r'subsistence_output_add', modifier_name):
-		assert scaled_by == 'unscaled', 'scale type not matching'
+		assert scaled_by == 'unscaled', 'scale type not matching, expected unscaled'
 		return 'subsistence_output', 'subsistence_output', 'subsistence_output'
 
 	assert False, f'UNKNOWN MODIFIER'
