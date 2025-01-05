@@ -34,7 +34,7 @@ def get_header_key_labels() -> list[str]:
 # Parses the modifier name, and decomposes it in three parts.
 def parse_modifier_name(pm: ProductionMethod, scaled_by: str, modifier_name: str) -> tuple[str, str, {str, PopType, Good}]:
 	# Remove common elements from the modifier name. Currently, all modifiers start with "building_".
-	m = re.fullmatch(r'building_(.+)', modifier_name)
+	m = re.fullmatch(r'(?:building_|goods_)(.+)', modifier_name)
 	assert m, f'UNKNOWN MODIFIER'
 	modifier_name = m.group(1)
 

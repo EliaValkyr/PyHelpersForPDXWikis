@@ -13,7 +13,7 @@ economic_laws = [law for _, law in laws.items() if law.group == 'lawgroup_econom
 def get_pop_types_order() -> list[PopType]:
     # Sort pop types by strata, then by file order (based on the profession_to_strata map)
     # Sort the professions based on their strata
-    strata_order = ['upper', 'middle', 'lower']  # This is the desired order of strata
+    strata_order = ['lower', 'middle', 'upper']  # This is the desired order of strata
     profession_to_strata = {
         'academics': 'middle',
         'aristocrats': 'upper',
